@@ -7,19 +7,22 @@ public class Client {
     private BufferedReader in;
     private BufferedReader stdIn;
     private String role;
+    private String topic;
 
-    public Client(String ip, int port, String role) throws IOException {
+    public Client(String ip, int port, String role, String topic) throws IOException {
         this.clientSocket = new Socket(ip, port);
         this.out = new PrintWriter(clientSocket.getOutputStream(), true);
         this.in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
         this.stdIn = new BufferedReader(new InputStreamReader(System.in));
         this.role = role.toUpperCase();
+        this.topic = topic.toUpperCase();
     }
 
     public void start() {
         try {
-            // Send the role to the server
+            // Send the role and topic to the server
             out.println(role);
+            out.println(topic);
 
             // Read server responses and print them
             Thread serverListener = new Thread(() -> {
@@ -57,17 +60,18 @@ public class Client {
     }
 
     public static void main(String[] args) {
-        if (args.length != 3) {
-            System.out.println("Usage: java Client <server_ip> <port> <role>");
+        if (args.length != 4) {
+            System.out.println("Usage: java Client <server_ip> <port> <role> <topic>");
             return;
         }
 
         String ip = args[0];
         int port = Integer.parseInt(args[1]);
         String role = args[2];
+        String topic = args[3];
 
         try {
-            Client client = new Client(ip, port, role);
+            Client client = new Client(ip, port, role, topic);
             client.start();
         } catch (IOException e) {
             e.printStackTrace();

@@ -4,7 +4,7 @@ import java.util.*;
 
 public class Server {
     private ServerSocket serverSocket;
-    private List<ClientHandler> clients = Collections.synchronizedList(new ArrayList<>());
+    private Map<String, List<ClientHandler>> topicSubscribers = new HashMap<>();
 
     public Server(int port) throws IOException {
         serverSocket = new ServerSocket(port);
@@ -16,7 +16,6 @@ public class Server {
             try {
                 Socket clientSocket = serverSocket.accept();
                 ClientHandler clientHandler = new ClientHandler(clientSocket, this);
-                clients.add(clientHandler);
                 clientHandler.start();
                 System.out.println("Client connected: " + clientSocket.getInetAddress().getHostAddress());
             } catch (IOException e) {
@@ -25,16 +24,29 @@ public class Server {
         }
     }
 
-    public synchronized void broadcast(String message, ClientHandler sender) {
-        for (ClientHandler client : clients) {
-            if (client != sender && client.getRole().equals("SUBSCRIBER")) {
-                client.sendMessage(message);
+    public synchronized void addSubscriber(String topic, ClientHandler client) {
+        topicSubscribers.computeIfAbsent(topic, k -> new ArrayList<>()).add(client);
+    }
+
+    public synchronized void removeSubscriber(String topic, ClientHandler client) {
+        List<ClientHandler> subscribers = topicSubscribers.get(topic);
+        if (subscribers != null) {
+            subscribers.remove(client);
+            if (subscribers.isEmpty()) {
+                topicSubscribers.remove(topic);
             }
         }
     }
 
-    public void removeClient(ClientHandler client) {
-        clients.remove(client);
+    public synchronized void broadcast(String topic, String message, ClientHandler sender) {
+        List<ClientHandler> subscribers = topicSubscribers.get(topic);
+        if (subscribers != null) {
+            for (ClientHandler client : subscribers) {
+                if (client != sender) {
+                    client.sendMessage(message);
+                }
+            }
+        }
     }
 
     public static void main(String[] args) {
@@ -60,6 +72,7 @@ class ClientHandler extends Thread {
     private PrintWriter out;
     private BufferedReader in;
     private String role;
+    private String topic;
 
     public ClientHandler(Socket socket, Server server) {
         this.clientSocket = socket;
@@ -79,8 +92,9 @@ class ClientHandler extends Thread {
             out = new PrintWriter(clientSocket.getOutputStream(), true);
             in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
 
-            String inputLine = in.readLine();
-            role = inputLine.toUpperCase();
+            // Read role and topic
+            role = in.readLine().toUpperCase();
+            topic = in.readLine().toUpperCase();
 
             if (!role.equals("PUBLISHER") && !role.equals("SUBSCRIBER")) {
                 out.println("Invalid role. Disconnecting.");
@@ -88,6 +102,11 @@ class ClientHandler extends Thread {
                 return;
             }
 
+            if (role.equals("SUBSCRIBER")) {
+                server.addSubscriber(topic, this);
+            }
+
+            String inputLine;
             while ((inputLine = in.readLine()) != null) {
                 if (inputLine.equalsIgnoreCase("terminate")) {
                     System.out.println("Client terminated the connection.");
@@ -95,7 +114,7 @@ class ClientHandler extends Thread {
                 }
                 if (role.equals("PUBLISHER")) {
                     System.out.println("Received from Publisher: " + inputLine);
-                    server.broadcast(inputLine, this);
+                    server.broadcast(topic, inputLine, this);
                 } else {
                     System.out.println("Received from Subscriber: " + inputLine);
                 }
@@ -108,10 +127,12 @@ class ClientHandler extends Thread {
 
     private void closeConnection() {
         try {
+            if (role.equals("SUBSCRIBER")) {
+                server.removeSubscriber(topic, this);
+            }
             in.close();
             out.close();
             clientSocket.close();
-            server.removeClient(this);
         } catch (IOException e) {
             e.printStackTrace();
         }
